@@ -2,11 +2,12 @@
 import socket
 from core import session
 from core.protocol import FieldLength , OpCode , ReplyCodeDef
-from core.common import bc_to_decimal,decimal_to_bc,BytesConsumer
+from core.common import bc_to_decimal,decimal_to_bc,BYtesManager
 import os
 import platform
 
 NeedPass = "Need login and pass first ."
+
 #--------------------------------------------
 class UserSession(object):
     def __init__(self,user_socket):
@@ -15,10 +16,10 @@ class UserSession(object):
         self.closed              = False
         self.anonymous           = True
         self.authenticated       = False
-        self.user_list           = {"ftpuser":"ftpuser"}
+        self.user_list           = {"user":"user"}
         self.cwd                 = os.getcwd()
         self.user                = None
-
+        self._bytes_manager      = BYtesManager()
 
     def package_ctl_rep_code(self,code,message):
         code_msg             = decimal_to_bc(code,FieldLength.Control_REPL_CL)

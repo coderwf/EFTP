@@ -6,100 +6,113 @@ from core.common import bc_to_decimal,decimal_to_bc,BYtesManager
 import os
 import platform
 
-NeedPass = "Need login and pass first ."
 
-#--------------------------------------------
+ONE_MINUTE           = 1000 * 60
+TEN_MINUTE           = ONE_MINUTE * 10
+ONE_HOUR             = 6 * TEN_MINUTE
+
+#-------------------------------------------------------------------------#
+
+NEED_AUTH            =  "Need LOGIN and PASS first ."
+FILE_NOT_EXISTS      =  "File {} not exists."
+DIR_NOT_EXISTS       =  "Directory {} not exists."
+NOT_A_FILE           =  "{} Not a File."
+NOT_A_DIR            =  "{} Not a Directory."
+
+#-------------------------------------------------------------------------#
+#-------------------------------------------------------------------------#
+
 class UserSession(object):
     def __init__(self,user_socket):
-        self.user_socket         = user_socket
-        self.user_session        = session.BaseSession(self.user_socket)
-        self.closed              = False
-        self.anonymous           = True
-        self.authenticated       = False
-        self.user_list           = {"user":"user"}
-        self.cwd                 = os.getcwd()
-        self.user                = None
-        self._bytes_manager      = BYtesManager()
+        self.user_socket         =  user_socket
+        self.user_session        =  session.ClientSession(self.user_socket)
+        self.closed              =  True
+        self.anonymous           =  True
+        self.authenticated       =  False
+        self.user_list           =  {"user":"user"}
+        self.cwd                 =  os.getcwd()
+        self.user                =  None
+        self._bytes_manager      =  BYtesManager()
+        self.data_session        =  None
 
-    def package_ctl_rep_code(self,code,message):
-        code_msg             = decimal_to_bc(code,FieldLength.Control_REPL_CL)
-        msg                  = code_msg + message
-        msg_length_msg       = decimal_to_bc(len(msg),FieldLength.Control_MLL)
-        return msg_length_msg + msg
-
-    def receive_ctl_msg(self):
-        msg_l            = self.user_session.receive(FieldLength.Control_MLL,timeout=1000*10*60)
-        msg_length       = bc_to_decimal(msg_l)
-        b_consumer       = BytesConsumer(self.user_session.receive(msg_length,1000*60))
-        op_code          = b_consumer.consume_with_decimal(FieldLength.Operation_CL)
-        return op_code , b_consumer
+    def send_reply(self,rep_code,params="",timeout=0):
+        code_msg = decimal_to_bc(rep_code, FieldLength.Control_REP_L)
+        msg = code_msg + params
+        self.user_session.send_FC_msg(msg,timeout)
 
     def run(self):
-        while True :
-            op_code, b_consumer = self.receive_ctl_msg()
-            op_explain = OpCode.get_def(op_code)
-            self.__getattribute__("ftp_" + op_explain.lower())(b_consumer)
+        self.closed = False
+        while not self.closed :
+            try :
+                message     = self.user_session.receive_FC_msg(ONE_MINUTE*20,ONE_MINUTE)
+                self._bytes_manager.reset(message)
+                op_code     = self._bytes_manager.consume_with_decimal(FieldLength.Operation_L)
+                op_explain  = OpCode.get_def(op_code)
+                self.__getattribute__("ftp_" + op_explain.lower())()
+            except :
+                return
 
-    def ftp_user(self,b_consumer):
-        user = b_consumer.consume_all()
-        if user not in self.user_list :
-            reply = self.package_ctl_rep_code(ReplyCodeDef.NO_USER, "No user {} , check it.".format(user))
-            self.user_session.send(reply)
+    def ftp_user(self):
+        user = self._bytes_manager.consume_all()
+        if not user or user not in self.user_list :
+            if not user : user = ""
+            self.send_reply(ReplyCodeDef.NO_USER,"Sorry,User {} not exists.".format(user))
+        else :
+            self.send_reply(ReplyCodeDef.USER_OK,"User OKay,Please enter pass.")
+        return
+
+    def ftp_pass(self):
+        h_password    = self.user_list.get(self.user)
+        a_password    = self._bytes_manager.consume_all()
+        if not h_password or h_password != a_password :
+            self.send_reply(ReplyCodeDef.USER_OR_PASSWORD_ERR,"User or Password error,Check it.")
+        else :
+            self.send_reply(ReplyCodeDef.LOGIN_OK,"User Successfully Login.")
+        return
+
+    def ftp_quit(self):
+        user = self.user if self.authenticated else ""
+        self.send_reply(ReplyCodeDef.OK_OPERATION,"Bye Bye {}, Welcome next time.".format(user))
+        self.close()
+        return
+
+    #检查权限
+    def _check_auth_(self):
+        if (not self.anonymous) and (not self.authenticated):
+            self.send_reply(ReplyCodeDef.NEED_AUTH,NEED_AUTH)
+            return False
+        return True
+
+    def ftp_pwd(self):
+        if not self._check_auth_():
             return
-        reply = self.package_ctl_rep_code(ReplyCodeDef.USER_OK_NEED_PASS,"User okay , please pass.")
-        self.user = user
-        self.user_session.send(reply)
+        self.send_reply(ReplyCodeDef.OK_OPERATION,self.cwd)
         return
 
-    def ftp_pass(self,b_consumer):
-        password    = self.user_list.get(self.user)
-        i_password  = b_consumer.consume_all()
-        if not password or password != i_password :
-            reply   = self.package_ctl_rep_code(ReplyCodeDef.USER_OR_PASSWORD_ERR,"User or password error.")
-        else :
-            self.authenticated = True
-            reply   = self.package_ctl_rep_code(ReplyCodeDef.USER_LOGIN,"User login successfully.")
-        self.user_session.send(reply)
-        return
-
-    def ftp_pwd(self,b_consumer):
-        if not self.anonymous and not self.authenticated :
-            reply   = self.package_ctl_rep_code(ReplyCodeDef.NEED_PASS,NeedPass)
-        else :
-            reply   = self.package_ctl_rep_code(ReplyCodeDef.OK_OPERATION,self.cwd)
-        self.user_session.send(reply)
-        return
-
-    def ftp_cd(self,b_consumer):
-        if not self.anonymous and not self.authenticated:
-            reply   = self.package_ctl_rep_code(ReplyCodeDef.NEED_PASS, NeedPass)
-            self.user_session.send(reply)
+    def ftp_cd(self):
+        if not self._check_auth_():
             return
-        #----------------"if loginin"------------------------
-        dir_path   = b_consumer.consume_all()
-        target_dir = os.path.abspath(os.path.join(self.cwd,dir_path))
-        print target_dir
-        if not os.path.exists(target_dir):
-            reply = self.package_ctl_rep_code(ReplyCodeDef.FILE_OR_DIR_NOT_EXIST,"Directory or file {} "
-                                                                                 "not exists.".format(target_dir))
-        elif not os.path.isdir(target_dir):
-            reply = self.package_ctl_rep_code(ReplyCodeDef.NOT_DIR,"{} is not a directory.")
-        else :
-            reply = self.package_ctl_rep_code(ReplyCodeDef.OK_OPERATION,"Directory changed successfully")
-            self.cwd = target_dir
-        self.user_session.send(reply)
+        #----------------"auth check"------------------------
+        dir_path = self._bytes_manager.consume_all()
+        target_dir = os.path.abspath(os.path.join(self.cwd, dir_path))
         return
 
+    def _check_target_dir_(self,dir_name):
+        pass
 
-    def ftp_sys(self,b_consumer):
-        if not self.anonymous and not self.authenticated:
-            reply    = self.package_ctl_rep_code(ReplyCodeDef.NEED_PASS, NeedPass)
-        else:
-            sys_info = platform.system() + platform.release() + " ," + \
-          platform.version() + ", "+platform.machine() + ", "+ platform.processor()
-            reply    = self.package_ctl_rep_code(ReplyCodeDef.OK_OPERATION,sys_info)
-        self.user_session.send(reply)
+    def _check_target_file(self,file_name):
+        pass
+
+    def ftp_sys(self):
+        if not self._check_auth_():
+            return
+        sys_info = platform.system() + platform.release() + " ," + \
+                   platform.version() + ", "+platform.machine() + ", "+ platform.processor()
+        self.send_reply(ReplyCodeDef.OK_OPERATION,sys_info)
         return
+
+    def close(self):
+        self.closed = True
 
 if __name__ == "__main__":
     server_socket = socket.socket()

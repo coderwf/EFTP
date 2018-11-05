@@ -18,6 +18,7 @@ class ReplyCodeDef(object):
     USER_OR_PASSWORD_ERR     = 530 #账号密码错误
     NO_USER                  = 231 #用户不存在
     NEED_AUTH                = 332 #需要登陆成功才能访问
+    LOGIN_OK                 = 333 #登录成功
     BAD_OPERATION            = 550 #错误操作
     OK_OPERATION             = 200 #操作正确
     UN_IMPLEMENT_CMD         = 202 #命令未实现

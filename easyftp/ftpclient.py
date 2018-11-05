@@ -2,7 +2,7 @@
 from core import session
 from core.protocol import FieldLength,ReplyCodeDef,pack_host_port,unpack_host_port
 from core.common import BYtesManager
-
+from core.protocol import OpCode
 #--------------------------------------------------------
 
 class FtpClient(object):
@@ -41,6 +41,11 @@ class FtpClient(object):
         self._bytes_manager.add_bytes(params)
         return self._bytes_manager.consume_all()
 
+    def send_client_msg(self,op_code,params=""):
+        self.__check_connection__()
+        msg     = self.pack_op_code(op_code,params)
+        self.client_session.send_FC_msg(msg)
+
     ###返回操作码
     def receive_message(self):
         message = self.client_session.receive_FC_msg(2000,1000)
@@ -49,18 +54,32 @@ class FtpClient(object):
         message   = self._bytes_manager.consume_all()
         return rep_code , message
 
-    def ftp_request(self,op_code,params=""):
-        self.__check_connection__()
-
-
     def ftp_user(self,user):
-        pass
+        user = str(user)
+        self.send_client_msg(OpCode.USER,user)
+        op_code , message = self.receive_message()
+        print op_code , message
 
     def ftp_pass(self,password):
-        pass
+        password = str(password)
+        self.send_client_msg(OpCode.PASS, password)
+        op_code, message = self.receive_message()
+        print op_code, message
+
+    def ftp_sys(self):
+        self.send_client_msg(OpCode.SYS)
+        op_code, message   = self.receive_message()
+        print op_code, message
+
+    def ftp_quit(self):
+        self.send_client_msg(OpCode.QUIT)
+        op_code , message  = self.receive_message()
+        print op_code , message
 
     def ftp_pwd(self):
-        pass
+        self.send_client_msg(OpCode.PWD)
+        op_code, message = self.receive_message()
+        print op_code, message
 
     def ftp_cd(self,dir_name):
         pass
@@ -71,5 +90,5 @@ class FtpClient(object):
 
 if __name__ == "__main__":
     ftp_client   =  FtpClient("127.0.0.1",9999)
-    pass
+    ftp_client.ftp_user("user")
 

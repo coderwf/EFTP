@@ -7,194 +7,220 @@
 
 import  socket
 import errno
-from common import TimeCheck , bc_to_decimal , TimeoutError
-import time
-
+from common import TimeChecker , bc_to_decimal , decimal_to_bc , BYtesManager
+from protocol import FieldLength
 #----------------------------------------------------------
 """
-所有的session都至少持有一个socket来进行通信
-获取socket的方式有两种 1:外部提供 2:自己提供端口号并创建socket
+基础的封装socket的session
 """
 
 """
-最基础的session,只有receive和send功能,无其他拓展功能
+通过规定的格式和各种session可以很容易的实现一个比较稳定的通信包
+
+#--------------SERVER------------------------------------
+def echo_back(s,msg):
+    s.send_P_msg(2, msg)
+
+def start_server(host,port,callback,timeout=0):
+    s = PasvSession()
+    s.bind_and_accept(host,port,2,timeout)
+    while True :
+        msg = s.receive_P_msg(2)
+        callback(s,msg)
+#---------------CLIENT-------------------------------------
+p = PortSession()
+p.connect("127.0.0.1",8888)
+while True :
+    p.send_P_msg(2,"Hi , baby !")
+    print p.receive_P_msg(2)
 """
-class BaseSession(object):
-    def __init__(self,session_socket,read_chunk_size=1024*1024,
+#-----------------------------------------------------------
+class BaseSession(object):   # 2M 10M
+    def __init__(self,session_name="",read_chunk_size=1024*1024*2,
                  max_read_buffer_size=1024*1024*10):
-        self.session_socket           = session_socket
-        self.closed                   = False
-        self._read_buffer             = ""
-        self.max_read_buffer_size     = max_read_buffer_size
-        self.read_chunk_size          = read_chunk_size
-        self.session_socket.setblocking(False)
+        self.data_socket                = None
+        self._read_buffer               = ""
+        self.max_read_buffer_size       = max_read_buffer_size
+        self.read_chunk_size            = read_chunk_size
+        self.session_name               = session_name
 
     def get_address(self):
-        address = self.session_socket.getsockname()
+        if not self.data_socket :
+            raise ValueError("session {} data socket is none.".format(self.session_name))
+        address = self.data_socket.getsockname()
         return address[0] , int(address[1])
 
-    def send(self,data,timeout=None):
-        if not self.session_socket :
-            raise ValueError("session socket is none")
-        t_check = TimeCheck(timeout,"session send data")
+    def send(self,data,timeout=0):
+        data  = str(data)
+        if not self.data_socket :
+            raise ValueError("session {} data socket is none".format(self.session_name))
+        t_checker = TimeChecker(timeout,"session {} send data".format(self.session_name))
         while data :
             try :
-                res  = self.session_socket.send(data)
+                res  = self.data_socket.send(data)
                 data = data[res:]
             except socket.error , e :
                 if e[0] in (errno.EAGAIN, errno.EWOULDBLOCK):
-                    t_check.check_timeout()
+                    t_checker.check_timeout()
                     continue
                 raise
 
-    def receive(self,bytes,timeout=None):
-        if not self.session_socket :
-            raise ValueError("session socket is none")
-        t_check  = TimeCheck(timeout,"session receive data")
-        while len(self._read_buffer) < bytes :
+    def receive(self,bytes_num,timeout=0):
+        if not self.data_socket :
+            raise ValueError("session {} data socket is none".format(self.session_name))
+        t_checker  = TimeChecker(timeout,"session {} receive data".format(self.session_name))
+        while len(self._read_buffer) < bytes_num :
             try :
-                chunk = self.session_socket.recv(self.read_chunk_size)
+                chunk = self.data_socket.recv(self.read_chunk_size)
                 #print "chunk>>>",chunk
             except socket.error, e:
                 if e[0] in (errno.EAGAIN, errno.EWOULDBLOCK):
-                    t_check.check_timeout()
+                    t_checker.check_timeout()
                     continue
                 raise
             if not chunk:
-                raise IOError("session read chunk is none")
+                raise IOError("session {} read chunk is none".format(self.session_name))
             self._read_buffer += chunk
             #为了避免此处超时,再给一次机会检查
-            if len(self._read_buffer) >= bytes:
+            if len(self._read_buffer) >= bytes_num:
                 break
-            t_check.check_timeout()
-        return self._consume(bytes)
+            t_checker.check_timeout()
+        return self._consume_(bytes_num)
 
-    def _consume(self,bytes):
-        if len(self._read_buffer) < bytes :
-            raise IOError("can't consume bytes {}".format(bytes))
-        res                 = self._read_buffer[:bytes]
-        self._read_buffer   = self._read_buffer[bytes:]
+    def _consume_(self,bytes_num):
+        if len(self._read_buffer) < bytes_num :
+            raise IOError("{} can't consume bytes {}".format(self.session_name,bytes))
+        res                 = self._read_buffer[:bytes_num]
+        self._read_buffer   = self._read_buffer[bytes_num:]
         return res
 
     def close(self):
-        if not self.closed and self.session_socket:
-            self.closed   = True
-            self.session_socket.close()
+        if self.data_socket :
+            self.data_socket.close()
+            self.data_socket = None
 
 
-class ClientSession(BaseSession):
-    def __init__(self):
-        BaseSession.__init__(self)
+class FtpBaseSession(BaseSession):
+    def __init__(self,session_name=""):
+        BaseSession.__init__(self,session_name)
 
+    def receive_with_decimal(self,bytes_num,timeout=0):
+        msg = self.receive(bytes_num,timeout)
+        return bc_to_decimal(msg)
 
-#当被动模式打开时使用这个session简化操作
-class SupSession(object):
-    def __init__(self):
-        self.session         = None
+    def receive_P_msg(self,MLL,timeout1=0,timeout2=0):
+        msg_length = self.receive_with_decimal(MLL,timeout1)
+        return self.receive(msg_length,timeout2)
 
-    def send(self,data,timeout=None):
-        if not self.session :
-            raise IOError("pasv session is none")
-        self.session.send(data,timeout)
+    def send_P_msg(self,MLL,message,timeout=0):
+        message           = str(message)
+        msg_length        = len(message)
+        msg_length_msg    = decimal_to_bc(msg_length,MLL)
+        msg               = msg_length_msg + message
+        self.send(msg,timeout)
 
-    def receive(self,bytes,timeout=None):
-        if not self.session :
-            raise IOError("pasv session is none")
-        return self.session.receive(bytes,timeout)
+    def receive_FC_msg(self,timeout1=0,timeout2=0):
+        return self.receive_P_msg(FieldLength.Control_MLL,timeout1,timeout2)
 
-    def receive_with_decimal(self,bytes,timeout=None):
-        bytes  = self.session.receive(bytes,timeout)
-        return bc_to_decimal(bytes)
+    def receive_FD_msg(self,timeout1=0,timeout2=0):
+        return self.receive_P_msg(FieldLength.Data_MLL,timeout1,timeout2)
 
-    # def receive_message(self,timeout=None):
-    #     start_time  = time.time() * 1000
-    #     length      = self.receive_with_decimal(4,timeout)
-    #     time_used   = time.time() *1000 - start_time
-    #     if timeout and time_used >timeout :
-    #         raise TimeoutError(timeout,timeout+start_time,"pasv session receive message")
-    #     rest_time = None if timeout == None else max(timeout-time_used,0)
-    #     message  = self.receive(length,rest_time)
-    #     return message
+    def send_FC_msg(self,message,timeout=0):
+        self.send_P_msg(FieldLength.Control_MLL,message,timeout)
 
-    def close(self):
-        pass
+    def send_FD_msg(self,message,timeout=0):
+        self.send_P_msg(FieldLength.Data_MLL,message,timeout)
 
+    def receive_with_bytes_manager(self,bytes_num,timeout=0):
+        message = self.receive(bytes_num,timeout)
+        return BYtesManager(message)
 
-#Port方式下主动连接的session
-class PortSession(SupSession):
-    def __init__(self):
-        SupSession.__init__(self)
-        self.session_socket     = None
-        self.closed             = True
+class ClientSession(FtpBaseSession):
+    def __init__(self,data_socket,session_name=""):
+        FtpBaseSession.__init__(self,session_name="")
+        self.data_socket = data_socket
+        self.data_socket.setblocking(False)
 
-    def connect(self,host,port,timeout=None):
-        t_check = TimeCheck(timeout,"port session connection ")
-        if not self.session_socket :
-            self.session_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-            self.closed         = False
-        while True :
-            try :
-                self.session_socket.connect((host, port))
-                #print "session_socket,>>>",self.session_socket
-                self.session = BaseSession(self.session_socket)
-                break
-            except socket.error , e:
-                if e[0] in (errno.EAGAIN,errno.EWOULDBLOCK):
-                    t_check.check_timeout()
-                    continue
-                raise
+class PasvSession(FtpBaseSession):
+    def __init__(self,session_name=""):
+        FtpBaseSession.__init__(self,session_name)
+        self.acc_socket       = None
+        self.bind_host        = None
+        self.bind_port        = None
+
+    def close_acc_socket(self):
+        if self.acc_socket :
+            self.acc_socket.close()
+            self.acc_socket   = None
+
+    def close_data_socket(self):
+        if self.data_socket :
+            self.data_socket.close()
+            self.data_socket  = None
 
     def close(self):
-        if not self.closed and self.session:
-            self.session.close()
-            self.session = None
+        self.close_acc_socket()
+        self.close_data_socket()
 
+    def bind(self,bind_host,bind_port,backlog=2):
+        if self.acc_socket :
+            self.acc_socket.close()
+            self.acc_socket = None
+        self.acc_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        self.acc_socket.bind((bind_host,bind_port))
+        self.acc_socket.setblocking(False)
+        self.acc_socket.listen(backlog)
+        self.bind_host  = bind_host
+        self.bind_port  = bind_port
 
-#被动等待接受连接并将得到的socket
-class PasvSession(SupSession):
-    def __init__(self):
-        SupSession.__init__(self)
-        self.bind_socket    =  None
-        self.closed         =  True
-
-    def bind_and_accept(self,bind_host,bind_port,timeout=None):
-        t_check   = TimeCheck(timeout,"pasv bind and accept")
-        if not self.bind_socket :
-            self.bind_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-            self.bind_socket.bind((bind_host,bind_port))
-            self.bind_socket.setblocking(False)
-            self.bind_socket.listen(2)
+    def accept(self,timeout=0):
+        if not self.acc_socket :
+            raise ValueError("session {} acc socket is none".format(self.session_name))
+        t_checker  = TimeChecker(timeout)
         while True :
             try :
-                client_socket,client_address = self.bind_socket.accept()
-                self.session = BaseSession(client_socket)
-                self.closed  = False
+                client , address = self.acc_socket.accept()
+                self.data_socket = client
+                self.data_socket.setblocking(False)
                 break
-            except socket.error , e:
+            except socket.error , e :
                 if e[0] in (errno.EWOULDBLOCK,errno.EAGAIN):
-                    t_check.check_timeout()
+                    t_checker.check_timeout()
                     continue
                 raise
 
-    def close(self):
-        if not self.closed :
-            self.closed = True
-            if self.session :
-                self.session.close()
-                self.session = None
-            if self.bind_socket :
-                self.bind_socket.close()
-                self.bind_socket = None
+    def bind_and_accept(self,bind_host,bind_port,backlog=2,timeout=0):
+        self.bind(bind_host,bind_port,backlog)
+        self.accept(timeout)
 
-    def close_session(self):
-        if self.session :
-            self.session.close()
-            self.session = None
+class PortSession(FtpBaseSession):
+    def __init__(self,host=None,port=None,session_name=""):
+        FtpBaseSession.__init__(self,session_name)
+        self.host    = host
+        self.port    = port
+
+    def connect(self,host,port,timeout=0):
+        if self.data_socket :
+            self.data_socket.close()
+            self.data_socket  = None
+        self.data_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        t_checker = TimeChecker(timeout)
+        while True :
+            try :
+                self.data_socket.connect((host,port))
+                break
+            except socket.error, e:
+                if e[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
+                    t_checker.check_timeout()
+                    continue
+                raise
+
+    def start_connect(self,timeout=0):
+        if (not self.host) and (not self.port):
+            raise ValueError("session {} host port is none".format(self.session_name))
+        self.connect(self.host,self.port,timeout)
 
 
 
-
-
-
-
-
+if __name__ == "__main__":
+    pass

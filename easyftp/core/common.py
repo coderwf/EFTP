@@ -117,6 +117,9 @@ def decimal_to_bc(decimal_,bytes_num):
     return bc
 
 if __name__ == "__main__":
-    t_check = TimeChecker(0,"test")
-    while True :
-        t_check.check_timeout()
+    # t_check = TimeChecker(0,"test")
+    # while True :
+    #     t_check.check_timeout()
+    #
+    pass
+

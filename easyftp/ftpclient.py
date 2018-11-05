@@ -7,7 +7,7 @@ from core.protocol import OpCode
 
 class FtpClient(object):
     def __init__(self,host,port,client_name=""):
-        self.client_session      =   session.PortSession()
+        self.client_session      =   None
         self.host                =   host
         self.port                =   port
         self.data_session        =   None
@@ -25,12 +25,13 @@ class FtpClient(object):
     def __check_connection__(self):
         if self.client_session :
             return
-        self.client_session = session.PortSession(self.client_name)
-        for _ in (0,5):
+        self.client_session = session.PortSession()
+        for _ in range(0,5):
             try :
-                self.client_session.connect(self.host, self.port, timeout=3000)
-                break
-            except :
+                self.client_session.connect(self.host,self.port)
+                return
+            except Exception ,e :
+                print e
                 pass
         raise IOError("can't connect to server .")
 
@@ -91,4 +92,8 @@ class FtpClient(object):
 if __name__ == "__main__":
     ftp_client   =  FtpClient("127.0.0.1",9999)
     ftp_client.ftp_user("user")
+    ftp_client.ftp_pass("user")
+    ftp_client.ftp_sys()
+    ftp_client.ftp_pwd()
+
 

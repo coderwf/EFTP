@@ -27,7 +27,7 @@ class UserSession(object):
         self.user_socket         =  user_socket
         self.user_session        =  session.ClientSession(self.user_socket)
         self.closed              =  True
-        self.anonymous           =  True
+        self.anonymous           =  False
         self.authenticated       =  False
         self.user_list           =  {"user":"user"}
         self.cwd                 =  os.getcwd()
@@ -54,19 +54,21 @@ class UserSession(object):
 
     def ftp_user(self):
         user = self._bytes_manager.consume_all()
-        if not user or user not in self.user_list :
+        if not user or (user not in self.user_list ):
             if not user : user = ""
             self.send_reply(ReplyCodeDef.NO_USER,"Sorry,User {} not exists.".format(user))
         else :
+            self.user = user
             self.send_reply(ReplyCodeDef.USER_OK,"User OKay,Please enter pass.")
         return
 
     def ftp_pass(self):
         h_password    = self.user_list.get(self.user)
         a_password    = self._bytes_manager.consume_all()
-        if not h_password or h_password != a_password :
+        if not h_password or (h_password != a_password) :
             self.send_reply(ReplyCodeDef.USER_OR_PASSWORD_ERR,"User or Password error,Check it.")
         else :
+            self.authenticated = True
             self.send_reply(ReplyCodeDef.LOGIN_OK,"User Successfully Login.")
         return
 

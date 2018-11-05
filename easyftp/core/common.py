@@ -11,24 +11,28 @@ import time
 超时异常
 """
 class TimeoutError(Exception):
-    def __init__(self,timeout,deadline,message):
+    def __init__(self,timeout,deadline,message=""):
         self.timeout  = timeout
         self.deadline = deadline
         self.message  = message
+        self.items    = [self.timeout,self.deadline,self.message]
+
+    def __str__(self):
+        return "{} timeout for {}".format(self.message,self.timeout)
+
+    def __getitem__(self, item):
+        return self.items[item]
 
 """
-时间检查类:
+时间检查类
 超时检查
 单位为ms
+0 表示一直阻塞
 """
-class TimeCheck(object) :
-    def __init__(self,timeout,message):
-        if timeout == None :
-            self.timeout    = None
-            self.message    = None
-            self.deadline   = None
-            return
-        if timeout <= 0:
+class TimeChecker(object) :
+    def __init__(self,timeout,message=""):
+        if not timeout : timeout = 0
+        if timeout < 0:
             raise ValueError("timeout {} must greater than 0".format(timeout))
         self.timeout    =  timeout
         self.message    =  message
@@ -53,15 +57,15 @@ class TimeCheck(object) :
         self.timeout    =  self.timeout +timeout
         self.deadline   = time.time() * 1000 + self.timeout
 
-class BytesConsumer(object):
+class BYtesManager(object):
     def __init__(self,bytes=""):
         self.bytes = bytes
 
-    def consume(self,bytes):
-        if len(self.bytes) <bytes:
-            raise IOError("consume {} more than {}".format(bytes,len(self.bytes)))
-        res = self.bytes[:bytes]
-        self.bytes  = self.bytes[bytes:]
+    def consume(self,bytes_num):
+        if len(self.bytes) <bytes_num:
+            raise IOError("consume {} more than {}".format(bytes_num,len(self.bytes)))
+        res = self.bytes[:bytes_num]
+        self.bytes  = self.bytes[bytes_num:]
         return res
 
     def reset(self,bytes):
@@ -75,12 +79,18 @@ class BytesConsumer(object):
         self.bytes  = ""
         return res
 
+    def add_bytes(self,bytes):
+        self.bytes += bytes
+
+    def add_bytes_with_decimal(self,decimal_,B_num):
+        self.bytes += decimal_to_bc(decimal_,B_num)
+
     #返回整数
-    def consume_with_decimal(self,bytes):
-        if len(self.bytes) < bytes:
-            raise IOError("consume {} more than {}".format(bytes, len(self.bytes)))
-        res = self.bytes[:bytes]
-        self.bytes = self.bytes[bytes:]
+    def consume_with_decimal(self,bytes_num):
+        if len(self.bytes) < bytes_num:
+            raise IOError("consume {} more than {}".format(bytes_num, len(self.bytes)))
+        res = self.bytes[:bytes_num]
+        self.bytes = self.bytes[bytes_num:]
         return bc_to_decimal(res)
 
 # 二进制字符流到正数的转换工具
@@ -107,6 +117,6 @@ def decimal_to_bc(decimal_,bytes_num):
     return bc
 
 if __name__ == "__main__":
-    t_check = TimeCheck(2000,"test")
+    t_check = TimeChecker(0,"test")
     while True :
         t_check.check_timeout()

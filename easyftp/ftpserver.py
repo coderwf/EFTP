@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 import socket
 from core import session
-from core.protocol import FieldLength , OpCode , ReplyCodeDef
+from core.protocol import FieldLength , OpCode , ReplyCodeDef,pack_host_port,unpack_host_port
 from core.common import bc_to_decimal,decimal_to_bc,BYtesManager
 import os
 import platform
@@ -20,7 +20,10 @@ NOT_A_FILE           =  "{} Not a File."
 NOT_A_DIR            =  "{} Not a Directory."
 
 NO_PERMISSION        = "No Permission or Bad Name , Check it."
+DATA_CONN_CREATE_FAILED  = "Can't create data connection ,Check it."
 
+PASV_MODE            =  0
+PORT_MODE            =  1
 #-------------------------------------------------------------------------#
 #-------------------------------------------------------------------------#
 
@@ -36,6 +39,7 @@ class UserSession(object):
         self.user                =  None
         self._bytes_manager      =  BYtesManager()
         self.data_session        =  None
+        self.data_mode           =  None
 
     def send_reply(self,rep_code,params="",timeout=ONE_MINUTE):
         code_msg = decimal_to_bc(rep_code, FieldLength.Control_REP_L)
@@ -92,6 +96,33 @@ class UserSession(object):
             return
         self.send_reply(ReplyCodeDef.OK_OPERATION,self.cwd)
         return
+
+    def ftp_list(self):
+        if not self._check_auth_() :
+            return
+        ###一共需要返回两次结果到客户端
+        ###第一次如果检查无误则返回确认连接并进行第二次,否则返回错误并结束对话
+        ###第二次确认连接并传输数据,然后返回传输结构
+        dir_name     = self._bytes_manager.consume_all()
+        target_dir   = os.path.abspath(os.path.join(self.cwd,dir_name))
+        if not self._check_target_dir_(target_dir):
+            return
+        try :
+            file_list = os.listdir(target_dir)
+            self.send_reply(ReplyCodeDef.DATA_CONN_ACK,"Ack data conn.")
+        except :
+            self.send_reply(ReplyCodeDef.BAD_OPERATION,NO_PERMISSION)
+            return  ##确认连接之前的任何异常直接结束
+        ###进行连接确认
+        try :
+            self._ack_data_session_()
+            ###如果连接确认ok则传输数据并
+            self.data_session.send_FD_msg(str(file_list))
+            self.send_reply(ReplyCodeDef.OK_OPERATION,"List Transport Done.")
+            return
+        except :
+            self.send_reply(ReplyCodeDef.DATA_CONN_FAILED,"Data connection failed.")
+            return
 
     def ftp_cd(self):
         if not self._check_auth_():
@@ -154,7 +185,6 @@ class UserSession(object):
             return False
         return True
 
-
     def _check_target_file(self,file_name):
         if not os.path.exists(file_name) :
             self.send_reply(ReplyCodeDef.FILE_NOT_EXIST,FILE_NOT_EXISTS.format(file_name))
@@ -165,7 +195,7 @@ class UserSession(object):
         return True
 
     def ftp_sys(self):
-        if not self._check_auth_():
+        if not self._check_auth_() :
             return
         import time
         sys_info =  platform.system() + platform.release() + "," + platform.machine() + \
@@ -173,8 +203,75 @@ class UserSession(object):
         self.send_reply(ReplyCodeDef.OK_OPERATION,sys_info)
         return
 
+    def ftp_port(self):
+        try :
+            host_port_str = self._bytes_manager.consume_all()
+            host, port = unpack_host_port(host_port_str)
+            self.close_data_session()
+            self.data_session = session.PortSession()
+            self.send_reply(ReplyCodeDef.DATA_CONN_START,"Start CONN.")
+        except :
+            self.send_reply(ReplyCodeDef.DATA_CONN_FAILED,DATA_CONN_CREATE_FAILED)
+            return
+        try :
+            self.data_session.connect(host, port, 2000)
+            self._ack_data_session_()
+            self.send_reply(ReplyCodeDef.ENTER_PORT_MODE,"Entering Port Mode.")
+            return
+        except :
+            self.send_reply(ReplyCodeDef.DATA_CONN_FAILED,DATA_CONN_CREATE_FAILED)
+            return
+
+    def ftp_pasv(self):
+        ###一共返回两次结果 第一次表示连接是否可以建立 第二次表示连接是否成功
+        if not self._check_auth_() :
+            return
+        host , port = self._create_pasv_session_()
+        if not host :
+            self.send_reply(ReplyCodeDef.DATA_CONN_FAILED,DATA_CONN_CREATE_FAILED)
+            return
+        self.send_reply(ReplyCodeDef.DATA_CONN_START,pack_host_port(host,port))
+        try :
+            self.data_session.accept(2000)  ##等待连接
+            ###确认连接成功则返回OK并结束
+            self._ack_data_session_()
+            self.data_mode    = PASV_MODE
+            self.send_reply(ReplyCodeDef.ENTER_PASSIVE_MODE,"Entering Pasv Mode.")
+            return
+        except Exception , e:
+            print e
+            ###连接失败则返回Failed并结束
+            self.send_reply(ReplyCodeDef.DATA_CONN_FAILED,"Data connection Failed.")
+            return
+
+    def _create_pasv_session_(self):
+        try :
+            host, _ = self.user_session.get_address()
+        except :
+            return None , None
+        self.close_data_session()
+        self.data_session = session.PasvSession()
+        for port in range(7000,65525) :
+            try :
+                self.data_session.bind(host,port,2)
+                return host,port
+            except :
+                pass
+        return None,None
+
+    def _ack_data_session_(self):
+        if not self.data_session :
+            raise ValueError("data session is none.")
+        self.data_session.receive(1,2000)
+        self.data_session.send("1",2000)
+
     def close(self):
         self.closed = True
+
+    def close_data_session(self):
+        if self.data_session :
+            self.data_session.close()
+            self.data_session  = None
 
 if __name__ == "__main__":
     server_socket = socket.socket()

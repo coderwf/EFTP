@@ -227,6 +227,7 @@ class PortSession(FtpBaseSession):
         while True :
             try :
                 self.data_socket.connect((host,port))
+                self.data_socket.setblocking(False)
                 break
             except socket.error, e:
                 if e[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
@@ -242,4 +243,8 @@ class PortSession(FtpBaseSession):
 
 
 if __name__ == "__main__":
-    pass
+    server = PasvSession()
+    server.bind_and_accept("127.0.0.1",8888)
+    while True :
+        print server.receive_FC_msg(timeout=200)
+        server.send_FC_msg("hi , baby !")

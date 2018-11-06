@@ -22,6 +22,7 @@ class ReplyCodeDef(object):
     BAD_OPERATION            = 550 #错误操作
     OK_OPERATION             = 200 #操作正确
     UN_IMPLEMENT_CMD         = 202 #命令未实现
+    DATA_CONN_OK             = 224
     DATA_CONN_START          = 225 #开始数据连接
     DATA_CONN_FAILED         = 226 #数据连接失败
     DATA_CONN_ACK            = 330 #确认数据连接

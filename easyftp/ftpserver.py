@@ -105,6 +105,27 @@ class UserSession(object):
         self.send_reply(ReplyCodeDef.OK_OPERATION,"Directory Successfully Changed.")
         return
 
+    def ftp_mkd(self):
+        if not self._check_auth_():
+            return
+        dir_name    = self._bytes_manager.consume_all()
+        target_dir  = os.path.abspath(os.path.join(self.cwd, dir_name))
+        if os.path.exists(target_dir):
+            self.send_reply(ReplyCodeDef.BAD_OPERATION,"Directory {} already exists".format(target_dir))
+            return
+        try :
+            os.makedirs(target_dir)
+            self.send_reply(ReplyCodeDef.OK_OPERATION,"Directory {} Created.".format(target_dir))
+            return
+        except :
+            self.send_reply(ReplyCodeDef.BAD_OPERATION,NO_PERMISSION)
+            return
+
+    def ftp_unknown(self):
+        self._bytes_manager.consume_all()
+        self.send_reply(ReplyCodeDef.UN_IMPLEMENT_CMD,"CMD UNKNOWN , Check it.")
+        return
+
     def _check_target_dir_(self,dir_name):
         if not os.path.exists(dir_name) :
             self.send_reply(ReplyCodeDef.DIR_NOT_EXIST,DIR_NOT_EXISTS.format(dir_name))

@@ -102,16 +102,18 @@ class FtpClient(object):
         rep_code ,message  = self.ftp_request(OpCode.MKD,dir_name)
         print rep_code, message
 
+    def ftp_rmd(self,dir_name):
+        if dir_name == None:
+            raise ValueError("dir_name is none")
+        rep_code ,message = self.ftp_request(OpCode.RMD,dir_name)
+        print rep_code , message
 
 if __name__ == "__main__":
     ftp_client   =  FtpClient("127.0.0.1",9999)
     ftp_client.ftp_user("user")
     ftp_client.ftp_pass("user")
     ftp_client.ftp_sys()
-    ftp_client.ftp_pwd()
-    ftp_client.ftp_cd("c:/df")
-    ftp_client.ftp_pwd()
-    ftp_client.ftp_mkd("name")
-    ftp_client.ftp_pwd()
+    ftp_client.ftp_rmd("iu")
+
 
 

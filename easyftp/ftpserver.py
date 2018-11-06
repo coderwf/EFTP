@@ -121,6 +121,25 @@ class UserSession(object):
             self.send_reply(ReplyCodeDef.BAD_OPERATION,NO_PERMISSION)
             return
 
+    def ftp_rmd(self):
+        if not self._check_auth_():
+            return
+        dir_name    = self._bytes_manager.consume_all()
+        target_dir  = os.path.abspath(os.path.join(self.cwd, dir_name))
+        if target_dir == self.cwd :
+            self.send_reply(ReplyCodeDef.BAD_OPERATION,"Can't delete Working Directory.")
+            return
+        if not self._check_target_dir_(target_dir) :
+            return
+        try :
+            import shutil
+            shutil.rmtree(target_dir)
+            self.send_reply(ReplyCodeDef.OK_OPERATION,"Directory {} Successfully Deleted.".format(target_dir))
+            return
+        except :
+            self.send_reply(ReplyCodeDef.BAD_OPERATION,NO_PERMISSION)
+            return
+
     def ftp_unknown(self):
         self._bytes_manager.consume_all()
         self.send_reply(ReplyCodeDef.UN_IMPLEMENT_CMD,"CMD UNKNOWN , Check it.")
@@ -148,8 +167,9 @@ class UserSession(object):
     def ftp_sys(self):
         if not self._check_auth_():
             return
-        sys_info = platform.system() + platform.release() + " ," + \
-                   platform.version() + ", "+platform.machine() + ", "+ platform.processor()
+        import time
+        sys_info =  platform.system() + platform.release() + "," + platform.machine() + \
+                    ","+str(long(time.time() * 1000))
         self.send_reply(ReplyCodeDef.OK_OPERATION,sys_info)
         return
 

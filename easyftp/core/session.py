@@ -9,6 +9,7 @@ import  socket
 import errno
 from common import TimeChecker , bc_to_decimal , decimal_to_bc , BYtesManager
 from protocol import FieldLength
+import time
 #----------------------------------------------------------
 """
 基础的封装socket的session
@@ -43,6 +44,18 @@ class BaseSession(object):   # 2M 10M
         self.max_read_buffer_size       = max_read_buffer_size
         self.read_chunk_size            = read_chunk_size
         self.session_name               = session_name
+
+    def read_buffer_size(self):
+        return len(self._read_buffer)
+
+    def clear_read_buffer(self):
+        self._read_buffer = ""
+
+    def read_buffer_empty(self):
+        return len(self._read_buffer) == 0
+
+    def set_session_name(self,session_name):
+        self.session_name = session_name
 
     def get_address(self):
         if not self.data_socket :
@@ -108,9 +121,15 @@ class FtpBaseSession(BaseSession):
         msg = self.receive(bytes_num,timeout)
         return bc_to_decimal(msg)
 
-    def receive_P_msg(self,MLL,timeout1=0,timeout2=0):
-        msg_length = self.receive_with_decimal(MLL,timeout1)
-        return self.receive(msg_length,timeout2)
+    def receive_P_msg(self,MLL,timeout=0):
+        start_time    =  time.time() * 1000
+        msg_length = self.receive_with_decimal(MLL,timeout)
+        if timeout == 0 :
+            return self.receive(msg_length)
+        else :
+            time_used = time.time() * 1000 - start_time
+            time_rest = max(100,timeout - time_used)
+            return self.receive(msg_length,time_rest)
 
     def send_P_msg(self,MLL,message,timeout=0):
         message           = str(message)
@@ -119,11 +138,11 @@ class FtpBaseSession(BaseSession):
         msg               = msg_length_msg + message
         self.send(msg,timeout)
 
-    def receive_FC_msg(self,timeout1=0,timeout2=0):
-        return self.receive_P_msg(FieldLength.Control_MLL,timeout1,timeout2)
+    def receive_FC_msg(self,timeout=0):
+        return self.receive_P_msg(FieldLength.Control_MLL,timeout)
 
-    def receive_FD_msg(self,timeout1=0,timeout2=0):
-        return self.receive_P_msg(FieldLength.Data_MLL,timeout1,timeout2)
+    def receive_FD_msg(self,timeout=0):
+        return self.receive_P_msg(FieldLength.Data_MLL,timeout)
 
     def send_FC_msg(self,message,timeout=0):
         self.send_P_msg(FieldLength.Control_MLL,message,timeout)
@@ -137,7 +156,7 @@ class FtpBaseSession(BaseSession):
 
 class ClientSession(FtpBaseSession):
     def __init__(self,data_socket,session_name=""):
-        FtpBaseSession.__init__(self,session_name="")
+        FtpBaseSession.__init__(self,session_name)
         self.data_socket = data_socket
         self.data_socket.setblocking(False)
 

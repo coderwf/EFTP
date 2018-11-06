@@ -182,7 +182,7 @@ class FtpClient(object):
                 pass
         return None,None
 
-    def ftp_list(self,dir_name=".",callback=None):
+    def ftp_list(self,dir_name="."):
         self._check_none_(dir_name)
         op_code , message = self.ftp_request(OpCode.LIST,dir_name)
         if op_code != ReplyCodeDef.DATA_CONN_ACK :
@@ -196,11 +196,9 @@ class FtpClient(object):
             print rep_code , message
             return
         file_list = self.data_session.receive_FD_msg(2000)
-        if callback :
-            callback(file_list)
         print rep_code , message
 
-    def ftp_put(self,file_path,callback=None):
+    def ftp_put(self,file_path):
         self._check_none_(file_path)
         file_name  =  file_path.split(os.path.sep)[-1]
         file_size  =  os.stat(file_path).st_size
@@ -241,10 +239,9 @@ class FtpClient(object):
         return
 
     ###只能从工作目录中下载文件 target_dir是下载到哪个地方
-    def ftp_get(self,file_name,target_dir="."):
+    def ftp_get(self,file_name):
         self._check_none_(file_name)
-        if target_dir == None : target_dir = "." ###默认下载到本本地当前工作目录
-        target_dir = os.path.abspath(os.path.join(os.getcwd(),target_dir))
+        target_dir = os.path.abspath(os.path.join(self.cwd,file_name))
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir) :
             raise ValueError("target_dir error , Check it.")
         target_file  = os.path.abspath(os.path.join(target_dir,file_name))

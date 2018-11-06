@@ -1,8 +1,10 @@
 # -*- coding:utf-8 -*-
 from core import session
 from core.protocol import FieldLength,ReplyCodeDef,pack_host_port,unpack_host_port
-from core.common import BYtesManager
+from core.common import BYtesManager ,decimal_to_bc , bc_to_decimal
 from core.protocol import OpCode
+import os
+import hashlib
 #--------------------------------------------------------
 ONE_MINUTE              =   1000  * 60
 FIVE_MINUTE             =   5  * ONE_MINUTE
@@ -23,6 +25,7 @@ class FtpClient(object):
         self.data_session        =   None
         self._bytes_manager      =   BYtesManager()
         self.client_name         =   client_name
+        self.cwd                 =   os.getcwd() ###本地工作目录
 
     def close(self):
         if self.client_session :
@@ -90,21 +93,18 @@ class FtpClient(object):
         rep_code , message = self.ftp_request(OpCode.PWD)
         print rep_code, message
 
-    def ftp_cd(self,dir_name):
-        if dir_name == None :
-            raise ValueError("dir_name is none")
+    def ftp_cd(self,dir_name="."):
+        self._check_none_(dir_name)
         rep_code , message = self.ftp_request(OpCode.CD,dir_name)
         print rep_code , message
 
     def ftp_mkd(self,dir_name):
-        if dir_name == None :
-            raise ValueError("dir_name is none")
+        self._check_none_(dir_name)
         rep_code ,message  = self.ftp_request(OpCode.MKD,dir_name)
         print rep_code, message
 
     def ftp_rmd(self,dir_name):
-        if dir_name == None:
-            raise ValueError("dir_name is none")
+        self._check_none_(dir_name)
         rep_code ,message = self.ftp_request(OpCode.RMD,dir_name)
         print rep_code , message
 
@@ -150,8 +150,8 @@ class FtpClient(object):
         if not self.data_session :
             raise ValueError("data session is none.")
         try :
-            self.data_session.send("1", 2000)
-            self.data_session.receive(1, 2000)
+            self.data_session.send("1111111111", 2000)
+            self.data_session.receive(10, 2000)
             return True   ###数据连接确认成功
         except Exception :
             self.close_data_session()
@@ -182,9 +182,8 @@ class FtpClient(object):
                 pass
         return None,None
 
-    def ftp_list(self,dir_name):
-        if dir_name == None :
-            raise ValueError("dir is none.")
+    def ftp_list(self,dir_name=".",callback=None):
+        self._check_none_(dir_name)
         op_code , message = self.ftp_request(OpCode.LIST,dir_name)
         if op_code != ReplyCodeDef.DATA_CONN_ACK :
             print op_code , message
@@ -196,17 +195,143 @@ class FtpClient(object):
             self.close_data_session()
             print rep_code , message
             return
-        file_list = self.data_session.receive_FD_msg(1000)
-        print file_list
+        file_list = self.data_session.receive_FD_msg(2000)
+        if callback :
+            callback(file_list)
         print rep_code , message
 
+    def ftp_put(self,file_path,callback=None):
+        self._check_none_(file_path)
+        file_name  =  file_path.split(os.path.sep)[-1]
+        file_size  =  os.stat(file_path).st_size
+        try :
+            f = open(file_path,"rb")
+        except :
+            return
+        op_code , message = self.ftp_request(OpCode.PUT,decimal_to_bc(file_size,8)+file_name)
+        if op_code != ReplyCodeDef.DATA_CONN_ACK :
+            f.close()
+            print op_code , message
+            return
+        ###------ check server -----
+        if not self._ack_data_session_() :
+            print self.receive_message(2000)
+            return
+        read_size   = 0
+        m           = hashlib.md5()
+        try :
+            while read_size != file_size:
+                stream = f.read(1024 * 1024)
+                read_size += len(stream)
+                m.update(stream)
+                self.data_session.send_FD_msg(stream, ONE_MINUTE)
+            f.close()
+        except :
+            self.close_data_session()
+            print self.receive_message(2000)
+            return
+        try :
+            self.data_session.send_FC_msg(m.hexdigest())
+        except :
+            self.close_data_session()
+            print self.receive_message(2000)
+            return
+        print "transfer ok ."
+        print self.receive_message(2000)
+        return
+
+    ###只能从工作目录中下载文件 target_dir是下载到哪个地方
+    def ftp_get(self,file_name,target_dir="."):
+        self._check_none_(file_name)
+        if target_dir == None : target_dir = "." ###默认下载到本本地当前工作目录
+        target_dir = os.path.abspath(os.path.join(os.getcwd(),target_dir))
+        if not os.path.exists(target_dir) or not os.path.isdir(target_dir) :
+            raise ValueError("target_dir error , Check it.")
+        target_file  = os.path.abspath(os.path.join(target_dir,file_name))
+        try :
+            f = open(target_file,"wb")
+        except :
+            return 0 , "can't open file {}".format(target_file)
+        #--- check client file ----
+
+        rep_code , message = self.ftp_request(OpCode.GET,file_name)
+        ##-----check server auth or other -----
+        if rep_code != ReplyCodeDef.DATA_CONN_ACK :
+            f.close()
+            print rep_code , message
+            return
+        file_size          = bc_to_decimal(message)
+        if not self._ack_data_session_() :
+            f.close()
+            print self.receive_message(1000)
+        read_size = 0
+        m         = hashlib.md5()
+        try :
+            while read_size != file_size:
+                stream = self.data_session.receive_FD_msg(ONE_MINUTE)
+                m.update(stream)
+                read_size += len(stream)
+                f.write(stream)
+            f.close()
+        except :
+            f.close()
+            self.close_data_session()
+            print self.receive_message(1000)
+            return
+        try :
+            check_sum = self.data_session.receive_FD_msg(1000)
+            print self.receive_message(1000)
+            if check_sum != m.hexdigest() :
+                self.remove_file(target_file)
+                return
+        except :
+            self.close_data_session()
+            print self.receive_message(1000)
+
+    def remove_file(self,target_file):
+        if os.path.exists(target_file) and os.path.isfile(target_file):
+            import shutil
+            shutil.rmtree(target_file)
+
+    def _check_none_(self,name):
+        if name == None :
+            raise ValueError("name is none.")
+
+
+    def local_list(self,dir_name="."):
+        target_dir = os.path.abspath(os.path.join(self.cwd,dir_name))
+        file_list = os.listdir(target_dir)
+        for file in file_list :
+            print file ,
+
+    def local_cd(self,dir_name="."):
+        target_dir = os.path.abspath(os.path.join(self.cwd, dir_name))
+        if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
+            print "bad operation."
+            return
+        self.cwd = target_dir
+
+    def local_pwd(self):
+        print self.cwd
+
+    def local_mkd(self,dir_name):
+        pass
+
+    def local_rmd(self,dir_name):
+        pass
+
+def file_list_callback(file_list):
+    file_list = eval(file_list)
+    print ">>",
+    for file in file_list :
+        print file ,
+
+def file_put_callback(file_size,read_size):
+    print (read_size * 100.0) / file_size , "%"
+
 if __name__ == "__main__":
-    ftp_client   =  FtpClient("127.0.0.1",9999)
-    ftp_client.ftp_user("user")
-    ftp_client.ftp_pass("user")
-    ftp_client.ftp_sys()
-    ftp_client.ftp_rmd("iu")
-    ftp_client.ftp_port()
-
-
+    ftp_client = FtpClient("127.0.0.1",9999)
+    ftp_client.local_list()
+    ftp_client.local_cd("..")
+    ftp_client.local_pwd()
 

@@ -84,7 +84,10 @@ class BaseSession(object):   # 2M 10M
         t_checker  = TimeChecker(timeout,"session {} receive data".format(self.session_name))
         while len(self._read_buffer) < bytes_num :
             try :
+                self.data_socket.setblocking(False)
                 chunk = self.data_socket.recv(self.read_chunk_size)
+                #print len(chunk)
+                ###print "chunk>>>>",chunk
                 #print "chunk>>>",chunk
             except socket.error, e:
                 if e[0] in (errno.EAGAIN, errno.EWOULDBLOCK):
@@ -94,6 +97,7 @@ class BaseSession(object):   # 2M 10M
             if not chunk:
                 raise IOError("session {} read chunk is none".format(self.session_name))
             self._read_buffer += chunk
+            print "buffer size",len(self._read_buffer)
             #为了避免此处超时,再给一次机会检查
             if len(self._read_buffer) >= bytes_num:
                 break
@@ -128,7 +132,8 @@ class FtpBaseSession(BaseSession):
             return self.receive(msg_length)
         else :
             time_used = time.time() * 1000 - start_time
-            time_rest = max(100,timeout - time_used)
+            time_rest = max(200,timeout - time_used)
+            print "time_rest",time_rest
             return self.receive(msg_length,time_rest)
 
     def send_P_msg(self,MLL,message,timeout=0):

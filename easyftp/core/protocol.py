@@ -14,22 +14,22 @@ class FieldLength(object):
 class ReplyCodeDef(object):
     ENTER_PASSIVE_MODE       = 227
     ENTER_PORT_MODE          = 228
-    USER_OK                  = 331 #用户存在需要登陆
-    USER_OR_PASSWORD_ERR     = 530 #账号密码错误
-    NO_USER                  = 231 #用户不存在
-    NEED_AUTH                = 332 #需要登陆成功才能访问
-    LOGIN_OK                 = 333 #登录成功
-    BAD_OPERATION            = 550 #错误操作
-    OK_OPERATION             = 200 #操作正确
-    UN_IMPLEMENT_CMD         = 202 #命令未实现
+    USER_OK                  = 331   #用户存在需要登陆
+    USER_OR_PASSWORD_ERR     = 530   #账号密码错误
+    NO_USER                  = 231   #用户不存在
+    NEED_AUTH                = 332   #需要登陆成功才能访问
+    LOGIN_OK                 = 333   #登录成功
+    BAD_OPERATION            = 550   #错误操作
+    OK_OPERATION             = 200   #操作正确
+    UN_IMPLEMENT_CMD         = 202   #命令未实现
     DATA_CONN_OK             = 224
-    DATA_CONN_START          = 225 #开始数据连接
-    DATA_CONN_FAILED         = 226 #数据连接失败
-    DATA_CONN_ACK            = 330 #确认数据连接
-    FILE_NOT_EXIST           = 551 #文件不存在
-    NOT_FILE                 = 552 #不是文件
-    DIR_NOT_EXIST            = 553 #文件夹不存在
-    NOT_DIR                  = 554 #不是文件夹
+    DATA_CONN_START          = 225   #开始数据连接
+    DATA_CONN_FAILED         = 226   #数据连接失败
+    DATA_CONN_ACK            = 330   #确认数据连接
+    FILE_NOT_EXIST           = 551   #文件不存在
+    NOT_FILE                 = 552   #不是文件
+    DIR_NOT_EXIST            = 553   #文件夹不存在
+    NOT_DIR                  = 554   #不是文件夹
 
 
 class OpCode(object):

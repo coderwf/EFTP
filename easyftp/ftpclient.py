@@ -18,10 +18,10 @@ ONE_DAY                 =   24 * ONE_HOUR
 
 #----------------------------------------------------------
 class FtpClient(object):
-    def __init__(self,host,port,client_name=""):
+    def __init__(self,client_name=""):
         self.client_session      =   None
-        self.host                =   host
-        self.port                =   port
+        # self.host                =   host
+        # self.port                =   port
         self.data_session        =   None
         self._bytes_manager      =   BYtesManager()
         self.client_name         =   client_name
@@ -36,18 +36,18 @@ class FtpClient(object):
             self.data_session   = None
 
     def _connect_ftp_server(self,host,port):
-        if self.client_session :
-            self.client_session.close()
-            self.client_session   =  None
+        self.close_data_session()
         self.client_session = session.PortSession()
         ####try for five times or throws excepton
         for _ in range(0,5):
             try :
-                self.client_session.connect(self.host,self.port)
+                self.client_session.connect(host,port,2000)
                 return
             except Exception :
                 pass
+        self.close_data_session()
         raise IOError("can't connect to server .")
+
     #简化操作
     def pack_op_code(self,op_code,params=""):
         op_code = int(op_code)
@@ -58,7 +58,8 @@ class FtpClient(object):
 
     ###简化请求的操作
     def ftp_request(self,op_code,params="",timeout=2000):
-        self.__check_connection__()
+        if not self.client_session :
+            raise IOError("data session is none.")
         msg     = self.pack_op_code(op_code,params)
         self.client_session.send_FC_msg(msg,timeout)
         return self.receive_message(timeout)

@@ -66,6 +66,7 @@ class UserSession(object):
 
     def ftp_user(self):
         user = self._bytes_manager.consume_all()
+       ## print "user ...",user
         if not user or (user not in self.user_list ):
             if not user : user = ""
             self.send_reply(ReplyCodeDef.NO_USER,"Sorry,User {} not exists.".format(user))
@@ -330,6 +331,8 @@ class UserSession(object):
         return
 
     def ftp_port(self):
+        if not self._check_auth_() :
+            return
         try :
             host_port_str = self._bytes_manager.consume_all()
             host, port = unpack_host_port(host_port_str)

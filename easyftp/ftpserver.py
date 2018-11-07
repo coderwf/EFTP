@@ -61,6 +61,7 @@ class UserSession(object):
                 self.__getattribute__("ftp_" + op_explain.lower())()
             except :
                 print "client closed ."
+                return
         print "client closed ."
 
     def ftp_user(self):

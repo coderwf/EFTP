@@ -35,9 +35,10 @@ class FtpClient(object):
             self.data_session.close()
             self.data_session   = None
 
-    def __check_connection__(self):
+    def _connect_ftp_server(self,host,port):
         if self.client_session :
-            return
+            self.client_session.close()
+            self.client_session   =  None
         self.client_session = session.PortSession()
         ####try for five times or throws excepton
         for _ in range(0,5):
@@ -73,12 +74,12 @@ class FtpClient(object):
     def ftp_user(self,user):
         user = str(user)
         rep_code, message = self.ftp_request(OpCode.USER,user)
-        print rep_code , message
+        return rep_code , message
 
     def ftp_pass(self,password):
         password = str(password)
         rep_code, message =  self.ftp_request(OpCode.PASS, password)
-        print rep_code, message
+        return rep_code, message
 
     def ftp_sys(self):
         rep_code , message = self.ftp_request(OpCode.SYS)
@@ -111,8 +112,7 @@ class FtpClient(object):
     def ftp_pasv(self):
         rep_code , message = self.ftp_request(OpCode.PASV)
         if rep_code != ReplyCodeDef.DATA_CONN_START :
-            print rep_code , message
-            return
+            return rep_code , message
         ##----如果不是开始连接则表示服务器无法提供连接---直接返回错误码和错误信息
         ###关闭之前的data_session
         print rep_code , unpack_host_port(message)
@@ -122,9 +122,9 @@ class FtpClient(object):
         self.data_session.connect(host,port,2000)
         ###确认数据连接
         if not self._ack_data_session_() :
-            return
+            return ReplyCodeDef.DATA_CONN_FAILED , "Can't create Data connection."
         rep_code , message = self.receive_message()
-        print rep_code , message
+        return rep_code , message
 
     def ftp_port(self):
         ######一共返回两次结果,第一次表示能否建立连接,第二次表示连接是否建立成功
@@ -133,8 +133,8 @@ class FtpClient(object):
             raise IOError("Can't bind port")
         op_code , message = self.ftp_request(OpCode.PORT,pack_host_port(host,port))
         if op_code != ReplyCodeDef.DATA_CONN_START :
-            print op_code , message
-            return ###如果服务器无法建立连接则直接返回
+            return op_code , message
+            ###如果服务器无法建立连接则直接返回
         try :
             ###服务器可以建立连接则开始接受服务器的连接
             self.data_session.accept(2000)
@@ -144,7 +144,7 @@ class FtpClient(object):
             pass
         ####接受服务器消息
         rep_code , message =  self.receive_message()
-        print rep_code , message
+        return rep_code , message
 
     def _ack_data_session_(self):
         if not self.data_session :

@@ -155,7 +155,7 @@ class UserSession(object):
         self.send_reply(ReplyCodeDef.DATA_CONN_ACK,"Data Connection Ack.",ONE_MINUTE)
         try :
             self._ack_data_session_()
-            print "ack data session ok ..."
+            #print "ack data session ok ..."
         except :
             f.close()
             self.send_reply(ReplyCodeDef.DATA_CONN_FAILED, "Data connection Failed.")
@@ -368,7 +368,7 @@ class UserSession(object):
             self.send_reply(ReplyCodeDef.ENTER_PASSIVE_MODE,"Entering Pasv Mode.")
             return
         except Exception , e:
-            print e
+           # print e
             ###连接失败则返回Failed并结束
             self.send_reply(ReplyCodeDef.DATA_CONN_FAILED,"Data connection Failed.")
             return
@@ -393,7 +393,7 @@ class UserSession(object):
             raise ValueError("data session is none.")
         #3print self.data_session._read_buffer
         #self.data_session = session.PortSession()
-        print self.data_session.receive(10,2000)
+        self.data_session.receive(10,2000)
         ##print self.data_session._read_buffer
         self.data_session.send("1111111111",2000)
 

@@ -89,21 +89,21 @@ class FtpClient(object):
     def ftp_quit(self):
         self.ftp_request(OpCode.QUIT)
         op_code , message  = self.receive_message()
-        print op_code , message
+        return op_code , message
 
     def ftp_pwd(self):
         rep_code , message = self.ftp_request(OpCode.PWD)
-        print rep_code, message
+        return rep_code, message
 
     def ftp_cd(self,dir_name="."):
         self._check_none_(dir_name)
         rep_code , message = self.ftp_request(OpCode.CD,dir_name)
-        print rep_code , message
+        return rep_code , message
 
     def ftp_mkd(self,dir_name):
         self._check_none_(dir_name)
         rep_code ,message  = self.ftp_request(OpCode.MKD,dir_name)
-        print rep_code, message
+        return rep_code, message
 
     def ftp_rmd(self,dir_name):
         self._check_none_(dir_name)
@@ -116,11 +116,13 @@ class FtpClient(object):
             return rep_code , message
         ##----如果不是开始连接则表示服务器无法提供连接---直接返回错误码和错误信息
         ###关闭之前的data_session
-        print rep_code , unpack_host_port(message)
         self.close_data_session()
-        host , port = unpack_host_port(message) ##
-        self.data_session = session.PortSession()
-        self.data_session.connect(host,port,2000)
+        try :
+            host, port = unpack_host_port(message)  ##
+            self.data_session = session.PortSession()
+            self.data_session.connect(host, port, 2000)
+        except :
+            return ReplyCodeDef.DATA_CONN_FAILED ,"Can't create Data connection."
         ###确认数据连接
         if not self._ack_data_session_() :
             return ReplyCodeDef.DATA_CONN_FAILED , "Can't create Data connection."
@@ -168,7 +170,6 @@ class FtpClient(object):
         ###清空缓冲区的内容
 
     def _create_pasv_session_(self):
-        self.__check_connection__()
         try :
             host, _ = self.client_session.get_address()
         except :
@@ -187,35 +188,40 @@ class FtpClient(object):
         self._check_none_(dir_name)
         op_code , message = self.ftp_request(OpCode.LIST,dir_name)
         if op_code != ReplyCodeDef.DATA_CONN_ACK :
-            print op_code , message
-            return
+            return op_code , message
         ###确认连接
-        self._ack_data_session_()
+        if not self._ack_data_session_() :
+            return ReplyCodeDef.DATA_CONN_FAILED , "Data connection Failed."
         rep_code , message = self.receive_message(2000)
         if rep_code != ReplyCodeDef.OK_OPERATION :
             self.close_data_session()
-            print rep_code , message
-            return
-        file_list = self.data_session.receive_FD_msg(2000)
-        print rep_code , message
-
-    def ftp_put(self,file_path):
-        self._check_none_(file_path)
-        file_name  =  file_path.split(os.path.sep)[-1]
-        file_size  =  os.stat(file_path).st_size
+            return rep_code , message
         try :
-            f = open(file_path,"rb")
+            file_list = self.data_session.receive_FD_msg(2000)
         except :
-            return
+            self.close_data_session()
+            return ReplyCodeDef.DATA_CONN_FAILED , "Data connection Failed."
+        return rep_code , file_list
+
+    def ftp_put(self,file_name):
+        self._check_none_(file_name)
+        ##file_name  =  file_name.split(os.path.sep)[-1]
+        if file_name.find("/") != -1 or file_name.find("\\") != -1 or file_name.find(os.path.sep) != -1:
+            return ReplyCodeDef.BAD_OPERATION, "Only Working directory Supported."
+        local_file  = os.path.abspath(os.path.join(self.cwd,file_name))
+        file_size  =  os.stat(local_file).st_size
+        try :
+            f = open(local_file,"rb")
+        except :
+            return ReplyCodeDef.BAD_OPERATION , "Can't Open File {}".format(local_file)
         op_code , message = self.ftp_request(OpCode.PUT,decimal_to_bc(file_size,8)+file_name)
         if op_code != ReplyCodeDef.DATA_CONN_ACK :
             f.close()
-            print op_code , message
-            return
+            return op_code , message
         ###------ check server -----
         if not self._ack_data_session_() :
-            print self.receive_message(2000)
-            return
+            rep_code , message = self.receive_message(2000)
+            return rep_code , message
         read_size   = 0
         m           = hashlib.md5()
         try :
@@ -227,41 +233,41 @@ class FtpClient(object):
             f.close()
         except :
             self.close_data_session()
-            print self.receive_message(2000)
-            return
+            rep_code , message = self.receive_message(2000)
+            return rep_code , message
         try :
             self.data_session.send_FC_msg(m.hexdigest())
         except :
             self.close_data_session()
-            print self.receive_message(2000)
-            return
-        print "transfer ok ."
-        print self.receive_message(2000)
-        return
+            op_code , message = self.receive_message(2000)
+            return op_code , message
+       ## print "transfer ok ."
+        op_code , message = self.receive_message(2000)
+        return op_code , message
 
     ###只能从工作目录中下载文件 target_dir是下载到哪个地方
     def ftp_get(self,file_name):
         self._check_none_(file_name)
-        target_dir = os.path.abspath(os.path.join(self.cwd,file_name))
-        if not os.path.exists(target_dir) or not os.path.isdir(target_dir) :
-            raise ValueError("target_dir error , Check it.")
-        target_file  = os.path.abspath(os.path.join(target_dir,file_name))
+        ##file_name
+        if file_name.find("/") != -1 or file_name.find("\\") != -1 or file_name.find(os.path.sep) != -1:
+            return ReplyCodeDef.BAD_OPERATION , "Only Working directory Supported."
+        local_file  = os.path.abspath(os.path.join(self.cwd,file_name))
         try :
-            f = open(target_file,"wb")
+            f = open(local_file,"wb")
         except :
-            return 0 , "can't open file {}".format(target_file)
+            return ReplyCodeDef.BAD_OPERATION , "can't open file {}".format(local_file)
         #--- check client file ----
 
         rep_code , message = self.ftp_request(OpCode.GET,file_name)
         ##-----check server auth or other -----
         if rep_code != ReplyCodeDef.DATA_CONN_ACK :
             f.close()
-            print rep_code , message
-            return
+            return rep_code , message
         file_size          = bc_to_decimal(message)
         if not self._ack_data_session_() :
             f.close()
-            print self.receive_message(1000)
+            rep_code , message = self.receive_message(1000)
+            return rep_code , message
         read_size = 0
         m         = hashlib.md5()
         try :
@@ -274,17 +280,19 @@ class FtpClient(object):
         except :
             f.close()
             self.close_data_session()
-            print self.receive_message(1000)
-            return
+            rep_code , message = self.receive_message(1000)
+            return rep_code , message
         try :
             check_sum = self.data_session.receive_FD_msg(1000)
-            print self.receive_message(1000)
+            rep_code , message = self.receive_message(1000)
             if check_sum != m.hexdigest() :
-                self.remove_file(target_file)
-                return
+                self.remove_file(local_file)
+                return ReplyCodeDef.BAD_OPERATION , "Transfer loss."
         except :
             self.close_data_session()
-            print self.receive_message(1000)
+            rep_code, message =  self.receive_message(1000)
+            return rep_code , message
+        return rep_code , message
 
     def remove_file(self,target_file):
         if os.path.exists(target_file) and os.path.isfile(target_file):
@@ -297,26 +305,54 @@ class FtpClient(object):
 
 
     def local_list(self,dir_name="."):
-        target_dir = os.path.abspath(os.path.join(self.cwd,dir_name))
-        file_list = os.listdir(target_dir)
-        for file in file_list :
-            print file ,
+        target_dir = os.path.abspath(os.path.join(self.cwd, dir_name))
+        if not os.path.exists(target_dir):
+            return ReplyCodeDef.BAD_OPERATION, "Directory {} not exists.".format(target_dir)
+        if not os.path.isdir(target_dir):
+            return ReplyCodeDef.BAD_OPERATION, "{} Not a Directory.".format(target_dir)
+        try:
+            file_list = os.listdir(target_dir)
+            ##print file_list
+        except:
+            return ReplyCodeDef.BAD_OPERATION, "No Permission."
+        return ReplyCodeDef.OK_OPERATION , file_list
 
     def local_cd(self,dir_name="."):
         target_dir = os.path.abspath(os.path.join(self.cwd, dir_name))
-        if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
-            print "bad operation."
-            return
+        if not os.path.exists(target_dir):
+            return ReplyCodeDef.BAD_OPERATION, "Directory {} not exists.".format(target_dir)
+        if not os.path.isdir(target_dir):
+            return ReplyCodeDef.BAD_OPERATION, "{} Not a Directory.".format(target_dir)
         self.cwd = target_dir
+        return ReplyCodeDef.OK_OPERATION, "Directory Successfully Chenged"
+
 
     def local_pwd(self):
-        print self.cwd
+        return ReplyCodeDef.OK_OPERATION , self.cwd
+
 
     def local_mkd(self,dir_name):
-        pass
+        target_dir  = os.path.abspath(os.path.join(self.cwd,dir_name))
+        if os.path.exists(target_dir) :
+            return ReplyCodeDef.BAD_OPERATION , "Directory {} Already exists.".format(target_dir)
+        try :
+            os.makedirs(target_dir)
+            return ReplyCodeDef.OK_OPERATION , "Directory Successfully Created."
+        except :
+            return ReplyCodeDef.BAD_OPERATION , "No Permission."
 
     def local_rmd(self,dir_name):
-        pass
+        target_dir = os.path.abspath(os.path.join(self.cwd, dir_name))
+        if not os.path.isdir(target_dir) :
+            return ReplyCodeDef.BAD_OPERATION , "{} is Not Directory.".format(target_dir)
+        if not os.path.exists(target_dir) :
+            return ReplyCodeDef.BAD_OPERATION , "Directory {} Not exists.".format(target_dir)
+        try :
+            import shutil
+            shutil.rmtree(target_dir)
+            return ReplyCodeDef.OK_OPERATION , "Directory Successfully Deleted."
+        except :
+            return ReplyCodeDef.BAD_OPERATION , "No Permission."
 
 def file_list_callback(file_list):
     file_list = eval(file_list)
